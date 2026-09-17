@@ -32,14 +32,9 @@ export function AppHeaderNav({
             <GuardedLink
               key={href}
               href={href}
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
             >
               {label}
-              {href === "/orders" ? (
-                <span className="rounded bg-sky-100 px-1 py-px text-[9px] font-semibold uppercase leading-none tracking-wide text-sky-700">
-                  Beta
-                </span>
-              ) : null}
             </GuardedLink>
           ))}
         </nav>
