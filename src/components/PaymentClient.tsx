@@ -1,0 +1,882 @@
+﻿"use client";
+
+import { PaymentLcKind, Team } from "@prisma/client";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { CountryCombobox } from "@/components/CountryCombobox";
+import { AppSelect } from "@/components/AppSelect";
+import { DeleteButton } from "@/components/DeleteButton";
+import { SearchableCombobox } from "@/components/SearchableCombobox";
+import { confirmPaymentLCAction, confirmPaymentTTConfirmSectionAction, createPaymentLCAction, createPaymentTTAction, deletePaymentAction, deletePaymentAttachmentAction, notifyPaymentLCAction, notifyPaymentTTAction, savePaymentTTConfirmSectionAction, togglePaymentTTCompletedAction, uploadPaymentLCConfirmAttachmentsAction, uploadPaymentTTConfirmAttachmentsAction } from "@/server/actions";
+
+type UserOption = { id: string; name: string; team: Team };
+type BuyerOption = {
+  id: string;
+  exportCountry: string;
+  buyerName: string;
+  defaultCurrency: string | null;
+  salesOwner: string | null;
+  exportOwner: string | null;
+  salesEmailRecipients: string | null;
+};
+type PaymentTTRow = {
+  id: string;
+  exportCountry: string | null;
+  buyer: string | null;
+  amount: unknown;
+  currency: string | null;
+  date: string;
+  refNo: string | null;
+  salesOwner: string | null;
+  exportOwner: string | null;
+  depositOwner: string | null;
+  salesEmailRecipients: string | null;
+  productionRequestNo: string | null;
+  invNo: string | null;
+  description: string | null;
+  note: string | null;
+  completed: boolean;
+  allocations: PaymentTTAllocationRow[];
+};
+type PaymentTTAllocationRow = {
+  id: string;
+  productionRequestNo: string | null;
+  invNo: string | null;
+  amount: unknown;
+  note: string | null;
+};
+type PaymentLCRow = {
+  id: string;
+  kind: PaymentLcKind;
+  bank: string | null;
+  exportCountry: string | null;
+  buyer: string | null;
+  amount: unknown;
+  currency: string | null;
+  lcSd: string | null;
+  noticeDate: string;
+  lcNo: string | null;
+  productionRequestNo: string | null;
+  salesOwner: string | null;
+  exportOwner: string | null;
+  depositOwner: string | null;
+  salesEmailRecipients: string | null;
+  form: string | null;
+  note: string | null;
+  allocations: PaymentLCAllocationRow[];
+};
+type PaymentLCAllocationRow = {
+  id: string;
+  productionRequestNo: string | null;
+  amount: unknown;
+  note: string | null;
+};
+type AttachmentRow = {
+  id: string;
+  ownerId: string;
+  originalName: string;
+  path: string;
+  mimeType: string | null;
+};
+
+function paymentTtConfirmOwnerId(paymentId: string) {
+  return `${paymentId}:confirm`;
+}
+
+function paymentLcConfirmOwnerId(paymentId: string) {
+  return `${paymentId}:confirm`;
+}
+
+function isPaymentTtConfirmAttachment(ownerId: string, paymentId: string) {
+  return ownerId === paymentTtConfirmOwnerId(paymentId);
+}
+
+function isPaymentLcConfirmAttachment(ownerId: string, paymentId: string) {
+  return ownerId === paymentLcConfirmOwnerId(paymentId);
+}
+
+const emptyTT: PaymentTTRow = {
+  id: "",
+  exportCountry: "",
+  buyer: "",
+  amount: "",
+  currency: "USD",
+  date: "",
+  refNo: "",
+  salesOwner: "",
+  exportOwner: "",
+  depositOwner: "이해원",
+  salesEmailRecipients: "",
+  productionRequestNo: "",
+  invNo: "",
+  description: "",
+  note: "",
+  completed: false,
+  allocations: []
+};
+
+const emptyLC: PaymentLCRow = {
+  id: "",
+  kind: PaymentLcKind.OPEN,
+  bank: "",
+  exportCountry: "",
+  buyer: "",
+  amount: "",
+  currency: "USD",
+  lcSd: "",
+  noticeDate: "",
+  lcNo: "",
+  productionRequestNo: "",
+  salesOwner: "",
+  exportOwner: "",
+  depositOwner: "이해원",
+  salesEmailRecipients: "",
+  form: "",
+  note: "",
+  allocations: []
+};
+
+export function PaymentClient({
+  ttPayments,
+  lcPayments,
+  buyers,
+  users,
+  countries,
+  banks,
+  mode,
+  attachments,
+  searchQuery,
+  pendingOnly,
+  incompleteOnly
+}: {
+  ttPayments: PaymentTTRow[];
+  lcPayments: PaymentLCRow[];
+  buyers: BuyerOption[];
+  users: UserOption[];
+  countries: string[];
+  banks: string[];
+  mode: "tt" | "lc";
+  attachments: AttachmentRow[];
+  searchQuery: string;
+  pendingOnly: boolean;
+  incompleteOnly: boolean;
+}) {
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
+  const salesOwners = users.filter((user) => user.team === Team.OVERSEAS_MARKETING || user.team === Team.OVERSEAS_SALES || user.team === Team.OVERSEAS_SALES_SUPPORT);
+  const exportOwners = users.filter((user) => user.team === Team.OVERSEAS_SALES_SUPPORT);
+
+  return mode === "tt" ? (
+    <TTSection payments={ttPayments} buyers={buyers} countries={countries} salesOwners={salesOwners} exportOwners={exportOwners} attachments={attachments} initialEditId={editId} searchQuery={searchQuery} pendingOnly={pendingOnly} incompleteOnly={incompleteOnly} />
+  ) : (
+    <LCSection payments={lcPayments} buyers={buyers} countries={countries} banks={banks} salesOwners={salesOwners} exportOwners={exportOwners} attachments={attachments} initialEditId={editId} searchQuery={searchQuery} pendingOnly={pendingOnly} />
+  );
+}
+
+function TTSection({
+  payments,
+  buyers,
+  countries,
+  salesOwners,
+  exportOwners,
+  attachments,
+  initialEditId,
+  searchQuery,
+  pendingOnly,
+  incompleteOnly
+}: {
+  payments: PaymentTTRow[];
+  buyers: BuyerOption[];
+  countries: string[];
+  salesOwners: UserOption[];
+  exportOwners: UserOption[];
+  attachments: AttachmentRow[];
+  initialEditId: string | null;
+  searchQuery: string;
+  pendingOnly: boolean;
+  incompleteOnly: boolean;
+}) {
+  const [editing, setEditing] = useState<PaymentTTRow | null>(() => payments.find((payment) => payment.id === initialEditId) ?? null);
+  const [formKey, setFormKey] = useState(0);
+  const [buyerName, setBuyerName] = useState(() => payments.find((payment) => payment.id === initialEditId)?.buyer ?? "");
+  const current = editing ?? emptyTT;
+  const selectedBuyer = useMemo(() => buyers.find((buyer) => buyer.buyerName === buyerName), [buyers, buyerName]);
+  const currentAttachments = attachments.filter((file) => file.ownerId === current.id);
+  const currentConfirmAttachments = attachments.filter((file) => isPaymentTtConfirmAttachment(file.ownerId, current.id));
+
+  function startEdit(payment: PaymentTTRow) {
+    setEditing(payment);
+    setBuyerName(payment.buyer ?? "");
+    setFormKey((key) => key + 1);
+  }
+
+  function resetForm() {
+    setEditing(null);
+    setBuyerName("");
+    setFormKey((key) => key + 1);
+  }
+
+  const autoCurrency = selectedBuyer?.defaultCurrency ?? current.currency ?? "USD";
+  const autoSalesOwner = selectedBuyer?.salesOwner ?? current.salesOwner ?? "";
+  const autoExportOwner = selectedBuyer?.exportOwner ?? current.exportOwner ?? "";
+  const autoDepositOwner = current.depositOwner ?? "이해원";
+  const autoSalesRecipients = selectedBuyer?.salesEmailRecipients ?? current.salesEmailRecipients ?? "";
+  const countryOptions = [...new Set([...countries, ...buyers.map((buyer) => buyer.exportCountry)].filter(Boolean))];
+
+  return (
+    <div className="space-y-5">
+      <form key={formKey} action={createPaymentTTAction} encType="multipart/form-data" className="space-y-5">
+        <input type="hidden" name="id" value={current.id} />
+        <input type="hidden" name="paymentTab" value="tt" />
+        <section className="panel p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">T/T 입금 등록</h2>
+            <div className="flex gap-2">
+              {editing ? <button className="btn" type="button" onClick={resetForm}>신규로 돌아가기</button> : null}
+              <button className="btn" formAction={createPaymentTTAction}>저장</button>
+              <button className="btn-primary" formAction={notifyPaymentTTAction}>통지</button>
+            </div>
+          </div>
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-5 gap-3">
+              <Field label="국가">
+                <CountryCombobox name="exportCountry" countries={countryOptions} defaultValue={selectedBuyer?.exportCountry ?? current.exportCountry ?? ""} />
+              </Field>
+              <BuyerSelect buyers={buyers} value={buyerName || current.buyer || ""} onChange={setBuyerName} />
+              <Field label="통화"><CurrencySelect name="currency" value={autoCurrency} /></Field>
+              <Field label="금액"><AmountInput name="amount" defaultValue={current.amount} /></Field>
+              <Field label="입금일"><input name="date" type="date" defaultValue={current.date} /></Field>
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              <Field label="REF No."><input name="refNo" defaultValue={current.refNo ?? ""} /></Field>
+              <OwnerSelect label="영업담당자" name="salesOwner" users={salesOwners} value={autoSalesOwner} />
+              <OwnerSelect label="수출담당자" name="exportOwner" users={exportOwners} value={autoExportOwner} />
+              <OwnerSelect label="입금담당자" name="depositOwner" users={exportOwners} value={autoDepositOwner} fallbackOption="이해원" />
+              <Field label="영업메일수신자"><input name="salesEmailRecipients" value={autoSalesRecipients} onChange={() => undefined} /></Field>
+            </div>
+            <Field label="첨부파일" className="w-full">
+              <input name="files" type="file" multiple className="block w-full" />
+              {editing ? <ExistingAttachments files={currentAttachments} paymentId={current.id} tab="tt" /> : null}
+            </Field>
+          </div>
+        </section>
+
+        {editing ? (
+          <section className="panel p-5">
+            <h2 className="text-base font-semibold">T/T 입금 확인</h2>
+            <PaymentTTAllocationRows
+              rows={current.allocations.length ? current.allocations : [{
+                id: "",
+                productionRequestNo: current.productionRequestNo,
+                invNo: current.invNo,
+                amount: current.amount,
+                note: current.note
+              }]}
+            />
+            <Field label="첨부파일" className="mt-4 w-full">
+              <PaymentTTConfirmFileUpload paymentId={current.id} />
+              <ExistingAttachments files={currentConfirmAttachments} paymentId={current.id} tab="tt" />
+            </Field>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="btn" formAction={savePaymentTTConfirmSectionAction}>저장</button>
+              <button className="btn-primary" formAction={confirmPaymentTTConfirmSectionAction}>등록</button>
+            </div>
+          </section>
+        ) : null}
+      </form>
+
+      <section className="panel p-5">
+        <h2 className="text-base font-semibold">T/T 입금 관리 목록</h2>
+        <PaymentSearchForm tab="tt" defaultValue={searchQuery} pendingOnly={pendingOnly} incompleteOnly={incompleteOnly} />
+        <div className="mt-3 divide-y divide-slate-100">
+          <div className="grid grid-cols-[48px_110px_120px_140px_130px_1fr_1fr_180px_auto] items-center gap-3 py-2 text-xs font-medium text-slate-500">
+            <span>완료</span>
+            <span>영업담당자</span>
+            <span>국가</span>
+            <span>바이어</span>
+            <span>금액</span>
+            <span>생산의뢰번호</span>
+            <span>INV No.</span>
+            <span>첨부파일</span>
+            <span />
+          </div>
+          {payments.map((payment) => (
+            <div key={payment.id} className="grid grid-cols-[48px_110px_120px_140px_130px_1fr_1fr_180px_auto] items-center gap-3 py-3 text-sm">
+              <PaymentTTCompletedCheckbox paymentId={payment.id} completed={payment.completed} />
+              <RowButton onClick={() => startEdit(payment)}>{payment.salesOwner || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.exportCountry || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.buyer || "-"}</RowButton>
+              <button type="button" className="text-left font-medium text-slate-900" onClick={() => startEdit(payment)}>
+                {payment.currency ?? "USD"}{Number(payment.amount ?? 0).toLocaleString("ko-KR")}
+              </button>
+              <RowButton onClick={() => startEdit(payment)}>{payment.productionRequestNo || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.invNo || "-"}</RowButton>
+              <AttachmentLinks truncate files={attachments.filter((file) => file.ownerId === payment.id || isPaymentTtConfirmAttachment(file.ownerId, payment.id))} />
+              <DeletePaymentForm id={payment.id} type="tt" />
+            </div>
+          ))}
+          {!payments.length ? <p className="py-3 text-sm text-slate-500">등록된 T/T 입금 내역이 없습니다.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LCSection({
+  payments,
+  buyers,
+  countries,
+  banks,
+  salesOwners,
+  exportOwners,
+  attachments,
+  initialEditId,
+  searchQuery,
+  pendingOnly
+}: {
+  payments: PaymentLCRow[];
+  buyers: BuyerOption[];
+  countries: string[];
+  banks: string[];
+  salesOwners: UserOption[];
+  exportOwners: UserOption[];
+  attachments: AttachmentRow[];
+  initialEditId: string | null;
+  searchQuery: string;
+  pendingOnly: boolean;
+}) {
+  const [editing, setEditing] = useState<PaymentLCRow | null>(() => payments.find((payment) => payment.id === initialEditId) ?? null);
+  const [formKey, setFormKey] = useState(0);
+  const [buyerName, setBuyerName] = useState(() => payments.find((payment) => payment.id === initialEditId)?.buyer ?? "");
+  const current = editing ?? emptyLC;
+  const selectedBuyer = useMemo(() => buyers.find((buyer) => buyer.buyerName === buyerName), [buyers, buyerName]);
+  const currentAttachments = attachments.filter((file) => file.ownerId === current.id);
+  const currentConfirmAttachments = attachments.filter((file) => isPaymentLcConfirmAttachment(file.ownerId, current.id));
+
+  function startEdit(payment: PaymentLCRow) {
+    setEditing(payment);
+    setBuyerName(payment.buyer ?? "");
+    setFormKey((key) => key + 1);
+  }
+
+  function resetForm() {
+    setEditing(null);
+    setBuyerName("");
+    setFormKey((key) => key + 1);
+  }
+
+  const autoSalesOwner = selectedBuyer?.salesOwner ?? current.salesOwner ?? "";
+  const autoExportOwner = selectedBuyer?.exportOwner ?? current.exportOwner ?? "";
+  const autoSalesRecipients = selectedBuyer?.salesEmailRecipients ?? current.salesEmailRecipients ?? "";
+  const autoCurrency = selectedBuyer?.defaultCurrency ?? current.currency ?? "USD";
+  const countryOptions = [...new Set([...countries, ...buyers.map((buyer) => buyer.exportCountry)].filter(Boolean))];
+
+  return (
+    <div className="space-y-5">
+      <form key={formKey} action={createPaymentLCAction} encType="multipart/form-data" className="space-y-5">
+        <input type="hidden" name="id" value={current.id} />
+        <input type="hidden" name="paymentTab" value="lc" />
+        <section className="panel p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">L/C 통지 등록</h2>
+            <div className="flex gap-2">
+              {editing ? <button className="btn" type="button" onClick={resetForm}>신규로 돌아가기</button> : null}
+              <button className="btn" formAction={createPaymentLCAction}>저장</button>
+              <button className="btn-primary" formAction={notifyPaymentLCAction}>통지</button>
+            </div>
+          </div>
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-4 gap-4">
+              <Field label="OPEN / AMEND">
+                <AppSelect name="kind" defaultValue={current.kind === PaymentLcKind.AMEND ? PaymentLcKind.AMEND_1ST : current.kind} options={[
+                  { value: PaymentLcKind.OPEN, label: "OPEN" },
+                  { value: PaymentLcKind.AMEND_1ST, label: "1st AMEND" },
+                  { value: PaymentLcKind.AMEND_2ND, label: "2nd AMEND" },
+                  { value: PaymentLcKind.AMEND_3RD, label: "3rd AMEND" },
+                  { value: PaymentLcKind.AMEND_4TH, label: "4th AMEND" },
+                  { value: PaymentLcKind.AMEND_5TH, label: "5th AMEND" }
+                ]} />
+              </Field>
+              <Field label="은행">
+                <SearchableCombobox
+                  name="bank"
+                  defaultValue={current.bank ?? ""}
+                  placeholder="은행 선택/입력"
+                  options={banks.map((bank) => ({ value: bank, label: bank }))}
+                />
+              </Field>
+              <Field label="국가"><CountryCombobox name="exportCountry" countries={countryOptions} defaultValue={selectedBuyer?.exportCountry ?? current.exportCountry ?? ""} /></Field>
+              <BuyerSelect buyers={buyers} value={buyerName || current.buyer || ""} onChange={setBuyerName} />
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <Field label="통화"><CurrencySelect name="currency" value={autoCurrency} /></Field>
+              <Field label="금액"><AmountInput name="amount" defaultValue={current.amount} /></Field>
+              <Field label="통지일"><input name="noticeDate" type="date" defaultValue={current.noticeDate} /></Field>
+              <Field label="LC S/D"><input name="lcSd" type="date" defaultValue={current.lcSd ?? ""} /></Field>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <Field label="LC No."><input name="lcNo" defaultValue={current.lcNo ?? ""} /></Field>
+              <OwnerSelect label="영업담당자" name="salesOwner" users={salesOwners} value={autoSalesOwner} />
+              <OwnerSelect label="수출담당자" name="exportOwner" users={exportOwners} value={autoExportOwner} />
+              <Field label="영업메일수신자"><input name="salesEmailRecipients" value={autoSalesRecipients} onChange={() => undefined} /></Field>
+            </div>
+            <Field label="첨부파일" className="w-full">
+              <input name="files" type="file" multiple className="block w-full" />
+              {editing ? <ExistingAttachments files={currentAttachments} paymentId={current.id} tab="lc" /> : null}
+            </Field>
+          </div>
+        </section>
+
+        {editing ? (
+          <section className="panel p-5">
+            <h2 className="text-base font-semibold">L/C 확인</h2>
+            <PaymentLCAllocationRows
+              rows={current.allocations.length ? current.allocations : [{
+                id: "",
+                productionRequestNo: current.productionRequestNo,
+                amount: current.amount,
+                note: current.note
+              }]}
+            />
+            <Field label="첨부파일" className="mt-4 w-full">
+              <PaymentLCConfirmFileUpload paymentId={current.id} />
+              <ExistingAttachments files={currentConfirmAttachments} paymentId={current.id} tab="lc" />
+            </Field>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="btn" formAction={createPaymentLCAction}>저장</button>
+              <button className="btn-primary" formAction={confirmPaymentLCAction}>등록</button>
+            </div>
+          </section>
+        ) : null}
+      </form>
+
+      <section className="panel p-5">
+        <h2 className="text-base font-semibold">L/C 통지 관리 목록</h2>
+        <PaymentSearchForm tab="lc" defaultValue={searchQuery} pendingOnly={pendingOnly} />
+        <div className="mt-3 divide-y divide-slate-100">
+          <div className="grid grid-cols-[110px_110px_130px_130px_1fr_1fr_1fr_180px_auto] items-center gap-3 py-2 text-xs font-medium text-slate-500">
+            <span>영업담당자</span>
+            <span>국가</span>
+            <span>바이어</span>
+            <span>금액</span>
+            <span>생산의뢰번호</span>
+            <span>LC No.</span>
+            <span>LC S/D</span>
+            <span>첨부파일</span>
+            <span />
+          </div>
+          {payments.map((payment) => (
+            <div key={payment.id} className="grid grid-cols-[110px_110px_130px_130px_1fr_1fr_1fr_180px_auto] items-center gap-3 py-3 text-sm">
+              <RowButton onClick={() => startEdit(payment)}>{payment.salesOwner || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.exportCountry || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.buyer || "-"}</RowButton>
+              <button type="button" className="text-left font-medium text-slate-900" onClick={() => startEdit(payment)}>
+                {payment.currency ?? "USD"}{Number(payment.amount ?? 0).toLocaleString("ko-KR")}
+              </button>
+              <RowButton onClick={() => startEdit(payment)}>{payment.productionRequestNo || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)}>{payment.lcNo || "-"}</RowButton>
+              <RowButton onClick={() => startEdit(payment)} muted>{payment.lcSd || "-"}</RowButton>
+              <AttachmentLinks truncate files={attachments.filter((file) => file.ownerId === payment.id || isPaymentLcConfirmAttachment(file.ownerId, payment.id))} />
+              <DeletePaymentForm id={payment.id} type="lc" />
+            </div>
+          ))}
+          {!payments.length ? <p className="py-3 text-sm text-slate-500">등록된 L/C 통지가 없습니다.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PaymentTTAllocationRows({ rows }: { rows: PaymentTTAllocationRow[] }) {
+  const [items, setItems] = useState(() =>
+    rows.map((row) => ({
+      key: row.id || crypto.randomUUID(),
+      row
+    }))
+  );
+
+  function addRow() {
+    setItems((current) => [
+      ...current,
+      { key: crypto.randomUUID(), row: { id: "", productionRequestNo: "", invNo: "", amount: "", note: "" } }
+    ]);
+  }
+
+  function removeRow(key: string) {
+    setItems((current) => current.filter((item) => item.key !== key));
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex justify-start">
+        <button type="button" className="btn-primary h-10 px-4" onClick={addRow}>추가</button>
+      </div>
+      <div className="space-y-2">
+        {items.map((item) => {
+          const row = item.row;
+          return (
+            <div key={item.key} className="grid grid-cols-[1fr_1fr_150px_1.5fr_auto] items-end gap-3">
+              <Field label="생산의뢰번호"><input name="ttAllocationProductionRequestNo" defaultValue={row.productionRequestNo ?? ""} /></Field>
+              <Field label="INV No."><input name="ttAllocationInvNo" defaultValue={row.invNo ?? ""} /></Field>
+              <Field label="금액"><AmountInput name="ttAllocationAmount" defaultValue={row.amount} /></Field>
+              <Field label="비고"><input name="ttAllocationNote" defaultValue={row.note ?? ""} /></Field>
+              <button type="button" className="h-11 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700" onClick={() => removeRow(item.key)}>
+                삭제
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PaymentLCAllocationRows({ rows }: { rows: PaymentLCAllocationRow[] }) {
+  const [items, setItems] = useState(() =>
+    rows.map((row) => ({
+      key: row.id || crypto.randomUUID(),
+      row
+    }))
+  );
+
+  function addRow() {
+    setItems((current) => [
+      ...current,
+      { key: crypto.randomUUID(), row: { id: "", productionRequestNo: "", amount: "", note: "" } }
+    ]);
+  }
+
+  function removeRow(key: string) {
+    setItems((current) => current.filter((item) => item.key !== key));
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex justify-start">
+        <button type="button" className="btn-primary h-10 px-4" onClick={addRow}>추가</button>
+      </div>
+      <div className="space-y-2">
+        {items.map((item) => {
+          const row = item.row;
+          return (
+            <div key={item.key} className="grid grid-cols-[1fr_180px_1.5fr_auto] items-end gap-3">
+              <Field label="생산의뢰번호"><input name="lcAllocationProductionRequestNo" defaultValue={row.productionRequestNo ?? ""} /></Field>
+              <Field label="금액"><AmountInput name="lcAllocationAmount" defaultValue={row.amount} /></Field>
+              <Field label="비고"><input name="lcAllocationNote" defaultValue={row.note ?? ""} /></Field>
+              <button type="button" className="h-11 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700" onClick={() => removeRow(item.key)}>
+                삭제
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={`field ${className}`}>
+      <label>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function PaymentSearchForm({
+  tab,
+  defaultValue,
+  pendingOnly,
+  incompleteOnly = false
+}: {
+  tab: "tt" | "lc";
+  defaultValue: string;
+  pendingOnly: boolean;
+  incompleteOnly?: boolean;
+}) {
+  const placeholder =
+    tab === "tt"
+      ? "영업담당자, 국가, 바이어, 금액, 생산의뢰번호, INV No."
+      : "영업담당자, 국가, 바이어, 금액, 생산의뢰번호, LC No., LC S/D";
+
+  return (
+    <form className="mt-4 flex items-end gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <input type="hidden" name="tab" value={tab} />
+      <div className="field min-w-96">
+        <label>검색</label>
+        <input name="q" defaultValue={defaultValue} placeholder={placeholder} />
+      </div>
+      <button className="btn h-11">검색</button>
+      <label className="flex h-11 items-center gap-2 self-end whitespace-nowrap text-sm font-medium text-slate-700">
+        <input
+          type="checkbox"
+          name="pending"
+          value="1"
+          defaultChecked={pendingOnly}
+          onChange={(event) => event.currentTarget.form?.requestSubmit()}
+          className="h-4 w-4"
+        />
+        확인대기
+      </label>
+      {tab === "tt" ? (
+        <label className="flex h-11 items-center gap-2 self-end whitespace-nowrap text-sm font-medium text-slate-700">
+          <input
+            type="checkbox"
+            name="incomplete"
+            value="1"
+            defaultChecked={incompleteOnly}
+            onChange={(event) => event.currentTarget.form?.requestSubmit()}
+            className="h-4 w-4"
+          />
+          미완료
+        </label>
+      ) : null}
+    </form>
+  );
+}
+
+function AmountInput({ name, defaultValue }: { name: string; defaultValue: unknown }) {
+  const [value, setValue] = useState(() => formatAmount(defaultValue));
+
+  return (
+    <input
+      className="w-full"
+      name={name}
+      inputMode="decimal"
+      value={value}
+      onChange={(event) => setValue(formatAmount(event.target.value))}
+    />
+  );
+}
+
+function formatAmount(value: unknown) {
+  const raw = String(value ?? "").replaceAll(",", "");
+  if (!raw) return "";
+  const [integer, decimal] = raw.split(".");
+  const formattedInteger = Number(integer || 0).toLocaleString("ko-KR");
+  return decimal !== undefined ? `${formattedInteger}.${decimal}` : formattedInteger;
+}
+
+function BuyerSelect({ buyers, value, onChange }: { buyers: BuyerOption[]; value: string; onChange: (value: string) => void }) {
+  const options = useMemo(
+    () =>
+      buyers.map((buyer) => ({
+        id: buyer.id,
+        value: buyer.buyerName,
+        label: `${buyer.buyerName} · ${buyer.exportCountry}`,
+        searchText: `${buyer.buyerName} ${buyer.exportCountry}`
+      })),
+    [buyers]
+  );
+
+  return (
+    <Field label="바이어">
+      <SearchableCombobox
+        name="buyer"
+        value={value}
+        onChange={onChange}
+        placeholder="바이어 선택"
+        required
+        options={options}
+      />
+    </Field>
+  );
+}
+
+function CurrencySelect({ name, value }: { name: string; value: string }) {
+  return <AppSelect name={name} value={value} options={["USD", "EUR", "KRW"].map((item) => ({ value: item, label: item }))} />;
+}
+
+function OwnerSelect({ label, name, users, value, fallbackOption }: { label: string; name: string; users: UserOption[]; value: string; fallbackOption?: string }) {
+  const hasFallbackInUsers = fallbackOption ? users.some((user) => user.name === fallbackOption) : true;
+  return (
+    <Field label={label}>
+      <AppSelect name={name} value={value} placeholder={label} options={[
+        ...(fallbackOption && !hasFallbackInUsers ? [{ value: fallbackOption, label: fallbackOption }] : []),
+        ...users.map((user) => ({ value: user.name, label: user.name }))
+      ]} />
+    </Field>
+  );
+}
+
+function RowButton({ children, muted = false, onClick }: { children: ReactNode; muted?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className={`text-left ${muted ? "text-slate-600" : ""}`} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+function DeletePaymentForm({ id, type }: { id: string; type: "tt" | "lc" }) {
+  return (
+    <form action={deletePaymentAction}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="type" value={type} />
+      <DeleteButton />
+    </form>
+  );
+}
+
+function ExistingAttachments({ files, paymentId, tab }: { files: AttachmentRow[]; paymentId: string; tab: "tt" | "lc" }) {
+  return (
+    <div className="mt-2">
+      <p className="mb-1 text-xs font-medium text-slate-500">기존 첨부파일</p>
+      <AttachmentLinks files={files} showEmpty deletable paymentId={paymentId} tab={tab} />
+    </div>
+  );
+}
+
+function AttachmentLinks({
+  files,
+  showEmpty = false,
+  deletable = false,
+  truncate = false,
+  paymentId,
+  tab
+}: {
+  files: AttachmentRow[];
+  showEmpty?: boolean;
+  deletable?: boolean;
+  truncate?: boolean;
+  paymentId?: string;
+  tab?: "tt" | "lc";
+}) {
+  if (!files.length) return showEmpty ? <span className="text-xs text-slate-400">첨부파일 없음</span> : <span className="text-xs text-slate-400">-</span>;
+  return (
+    <div className={`flex flex-col gap-1 ${truncate ? "min-w-0 overflow-hidden" : ""}`}>
+      {files.map((file) => (
+        <span key={file.id} className={truncate ? "flex min-w-0 items-center" : "inline-flex flex-wrap items-center gap-1.5"}>
+          <a
+            href={file.path}
+            className={truncate ? "min-w-0 truncate text-xs font-medium text-blue-700 hover:underline" : "break-all text-xs font-medium text-blue-700 hover:underline"}
+            download={file.originalName}
+            title={file.originalName}
+          >
+            {file.mimeType?.startsWith("image/") ? "이미지 " : "파일 "} {file.originalName}
+          </a>
+          {deletable && paymentId && tab ? (
+            <AttachmentDeleteButton attachmentId={file.id} paymentId={paymentId} tab={tab} fileName={file.originalName} />
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PaymentTTConfirmFileUpload({ paymentId }: { paymentId: string }) {
+  return <PaymentConfirmFileUpload paymentId={paymentId} uploadAction={uploadPaymentTTConfirmAttachmentsAction} />;
+}
+
+function PaymentLCConfirmFileUpload({ paymentId }: { paymentId: string }) {
+  return <PaymentConfirmFileUpload paymentId={paymentId} uploadAction={uploadPaymentLCConfirmAttachmentsAction} />;
+}
+
+function PaymentConfirmFileUpload({
+  paymentId,
+  uploadAction
+}: {
+  paymentId: string;
+  uploadAction: (formData: FormData) => Promise<{ ok: true } | { ok: false; message: string }>;
+}) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pending, startTransition] = useTransition();
+
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files;
+    if (!selected?.length) return;
+
+    const formData = new FormData();
+    formData.set("id", paymentId);
+    for (const file of selected) formData.append("confirmFiles", file);
+
+    startTransition(async () => {
+      const result = await uploadAction(formData);
+      if (!result.ok) {
+        alert(result.message);
+        if (inputRef.current) inputRef.current.value = "";
+        return;
+      }
+      router.refresh();
+      if (inputRef.current) inputRef.current.value = "";
+    });
+  }
+
+  return (
+    <div className="w-full space-y-1">
+      <input ref={inputRef} type="file" multiple disabled={pending} onChange={handleChange} className="block w-full" />
+      {pending ? <p className="text-xs text-slate-500">첨부파일 저장 중...</p> : null}
+    </div>
+  );
+}
+
+function PaymentTTCompletedCheckbox({ paymentId, completed }: { paymentId: string; completed: boolean }) {
+  const [checked, setChecked] = useState(completed);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setChecked(completed);
+  }, [completed]);
+
+  function handleChange(next: boolean) {
+    setChecked(next);
+    const formData = new FormData();
+    formData.set("id", paymentId);
+    formData.set("completed", next ? "1" : "0");
+    startTransition(() => {
+      void togglePaymentTTCompletedAction(formData);
+    });
+  }
+
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={pending}
+      className="h-4 w-4"
+      aria-label="완료"
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => handleChange(event.target.checked)}
+    />
+  );
+}
+
+function AttachmentDeleteButton({
+  attachmentId,
+  paymentId,
+  tab,
+  fileName
+}: {
+  attachmentId: string;
+  paymentId: string;
+  tab: "tt" | "lc";
+  fileName: string;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  function handleDelete() {
+    if (!confirm("이 첨부파일을 삭제할까요?")) return;
+    const formData = new FormData();
+    formData.set("attachmentId", attachmentId);
+    formData.set("paymentId", paymentId);
+    formData.set("tab", tab);
+    startTransition(() => {
+      void deletePaymentAttachmentAction(formData);
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-sm leading-none text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+      title="첨부파일 삭제"
+      aria-label={`${fileName} 삭제`}
+      onClick={handleDelete}
+    >
+      ×
+    </button>
+  );
+}

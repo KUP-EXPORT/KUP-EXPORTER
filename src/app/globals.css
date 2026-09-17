@@ -1,0 +1,207 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+input,
+select,
+textarea {
+  @apply rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  @apply h-11;
+}
+
+/* Match ETD/ETA native datetime-local calendar indicator size/placement */
+input.flexible-date-native[type="datetime-local"] {
+  position: absolute !important;
+  right: 0 !important;
+  top: 0 !important;
+  z-index: 2;
+  width: 2.5rem !important;
+  height: 2.75rem !important; /* h-11 */
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 0.75rem 0 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: transparent !important;
+  font-size: 0.875rem !important; /* text-sm, same as form inputs */
+  line-height: 2.75rem !important;
+  cursor: pointer;
+  color-scheme: light;
+}
+
+input.flexible-date-native[type="datetime-local"]:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-text,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-datetime-edit-ampm-field,
+input.flexible-date-native[type="datetime-local"]::-webkit-inner-spin-button,
+input.flexible-date-native[type="datetime-local"]::-webkit-clear-button {
+  display: none !important;
+}
+
+input.flexible-date-native[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  /* Keep browser-default glyph size (same as ETD/ETA) */
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 1;
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+
+
+select {
+  color: #0f172a;
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+select:hover {
+  border-color: #94a3b8;
+}
+
+select:disabled {
+  cursor: not-allowed;
+  background-color: #f8fafc;
+  color: #94a3b8;
+}
+
+select option {
+  min-height: 44px;
+  padding: 12px 16px;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+select option:checked {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+select option:hover {
+  background-color: #eff6ff;
+  color: #0f172a;
+}
+
+label {
+  @apply text-xs font-medium text-slate-600;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700;
+}
+
+.panel {
+  @apply rounded-lg border border-slate-200 bg-white;
+}
+
+.ocb-h-scrollbar {
+  overflow-x: scroll;
+  overflow-y: hidden;
+  height: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
+}
+
+.ocb-h-scrollbar::-webkit-scrollbar {
+  height: 10px;
+}
+
+.ocb-h-scrollbar::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+.ocb-h-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.ocb-h-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+.ocb-buyer-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
+}
+
+.ocb-buyer-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ocb-buyer-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.ocb-frozen-rows tr {
+  height: 1px;
+}
+
+.ocb-frozen-rows td {
+  box-sizing: border-box;
+}
+
+.ocb-scroll-rows td {
+  overflow: visible;
+  word-break: break-word;
+}
+
+.ocb-cell-input,
+select.ocb-cell-input {
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  font-size: 0.75rem !important;
+  line-height: 1.25rem !important;
+  box-shadow: none !important;
+}
+
+.ocb-cell-input:focus,
+select.ocb-cell-input:focus {
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+.field {
+  @apply flex flex-col gap-1;
+}
